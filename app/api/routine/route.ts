@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { supabase } from '@/lib/supabase';
 import { buildCoachPrompt, type Athlete, allExercises } from '@/lib/athletes';
 import {
+  COACH_MODEL,
   buildExerciseMenu,
   dayOfWeek,
   extractJSON,
@@ -21,7 +22,6 @@ export const maxDuration = 60;
 const apiKey = process.env.ANTHROPIC_API_KEY;
 const anthropic = apiKey ? new Anthropic({ apiKey }) : null;
 
-const MODEL = 'claude-sonnet-4-20250514';
 
 type PlanItem = {
   exercise: string;
@@ -107,8 +107,11 @@ Return ONE JSON object, no markdown fences, matching this schema:
 For mobility-dominant athletes you may put their work in mainWork with "duration" instead of "sets/reps/weight" — that's fine; weight is null for non-loaded work.`;
 
   const resp = await anthropic.messages.create({
-    model: MODEL,
-    max_tokens: 1500,
+    model: COACH_MODEL,
+    // Adaptive thinking is on by default on this model and its tokens count
+    // against max_tokens — keep plenty of headroom so the JSON is never cut off.
+    max_tokens: 8000,
+    output_config: { effort: 'medium' },
     system: systemPrompt,
     messages: [
       {
@@ -118,6 +121,13 @@ For mobility-dominant athletes you may put their work in mainWork with "duration
       },
     ],
   });
+
+  if (resp.stop_reason === 'refusal') {
+    throw new Error('Model declined to generate a plan for this athlete profile');
+  }
+  if (resp.stop_reason === 'max_tokens') {
+    throw new Error('Plan response hit the max_tokens cap before the JSON was complete');
+  }
 
   const textBlock = resp.content.find((b) => b.type === 'text');
   const raw = textBlock && textBlock.type === 'text' ? textBlock.text : '';
@@ -236,6 +246,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ plan, cached: false });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Plan generation error';
+    console.error('[api/routine] plan generation failed', { athlete: athleteId, error: e });
     return NextResponse.json({ error: msg }, { status: 502 });
   }
 }

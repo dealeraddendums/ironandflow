@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { supabase } from '@/lib/supabase';
 import { allExercises, buildCoachPrompt, type Athlete } from '@/lib/athletes';
 import {
+  COACH_MODEL,
   buildExerciseMenu,
   dayOfWeek,
   extractJSON,
@@ -19,7 +20,6 @@ export const maxDuration = 30;
 const apiKey = process.env.ANTHROPIC_API_KEY;
 const anthropic = apiKey ? new Anthropic({ apiKey }) : null;
 
-const MODEL = 'claude-sonnet-4-20250514';
 
 type Suggestion = {
   exercise: string;
@@ -183,8 +183,12 @@ OUTPUT SCHEMA (return exactly this shape):
 
   try {
     const resp = await anthropic.messages.create({
-      model: MODEL,
-      max_tokens: 600,
+      model: COACH_MODEL,
+      // Adaptive thinking is on by default on this model and its tokens count
+      // against max_tokens — keep headroom so the JSON is never cut off. Low
+      // effort keeps this fast; it runs after every logged set.
+      max_tokens: 4000,
+      output_config: { effort: 'low' },
       system: systemPrompt,
       messages: [
         {
@@ -194,6 +198,13 @@ OUTPUT SCHEMA (return exactly this shape):
         },
       ],
     });
+
+    if (resp.stop_reason === 'refusal') {
+      throw new Error('Model declined to generate a suggestion');
+    }
+    if (resp.stop_reason === 'max_tokens') {
+      throw new Error('Suggestion hit the max_tokens cap before the JSON was complete');
+    }
 
     const textBlock = resp.content.find((b) => b.type === 'text');
     const raw = textBlock && textBlock.type === 'text' ? textBlock.text : '';
@@ -218,6 +229,7 @@ OUTPUT SCHEMA (return exactly this shape):
     return NextResponse.json(parsed);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'AI error';
+    console.error('[api/suggest] suggestion failed', { athlete: athleteId, error: e });
     return NextResponse.json({ error: msg }, { status: 502 });
   }
 }

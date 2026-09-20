@@ -136,6 +136,8 @@ export default function DailyPlan({
         setPlan(data.plan as DailyPlan);
         onPlanLoaded?.();
       } catch (e: unknown) {
+        // Surfaced under the "Try again" button and logged so PM2 captures it too.
+        console.error('[DailyPlan] plan generation failed', e);
         setError(e instanceof Error ? e.message : 'Plan error');
       } finally {
         setLoading(false);
@@ -238,6 +240,14 @@ export default function DailyPlan({
         <button className="btn btn-ghost" onClick={() => generate(true)} style={{ marginTop: 8 }}>
           Try again
         </button>
+        {error ? (
+          <div
+            className="muted"
+            style={{ fontSize: 11, marginTop: 8, lineHeight: 1.45, wordBreak: 'break-word' }}
+          >
+            {error}
+          </div>
+        ) : null}
       </div>
     );
   }

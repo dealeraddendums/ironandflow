@@ -1,5 +1,10 @@
 import type { Athlete } from './athletes';
 
+// Single source of truth for the Claude model used by both AI routes
+// (/api/routine and /api/suggest). Keep them on the same model so a retirement
+// can never take out one surface and leave the other silently on a dead id.
+export const COACH_MODEL = 'claude-opus-5';
+
 export type GymSetLike = {
   exercise: string;
   category: string;
